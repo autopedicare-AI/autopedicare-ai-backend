@@ -1,0 +1,9 @@
+venv/
+venv
+.py
+.pyd
+.env
+
+__pycache__/
+*.py[codz]
+*$py.class
