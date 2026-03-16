@@ -35,8 +35,11 @@ AutoPedicare AI Backend is a robust FastAPI application designed to power the Au
 │   ├── services/         # Business logic (Auth verification, Geolocation)
 │   └── main.py           # Application entry point
 ├── tests/                # Pytest suite for the application
+├── .dockerignore         # Docker exclusion rules
 ├── .env.sample           # Sample environment variables
 ├── alembic.ini           # Alembic configuration
+├── docker-compose.yml    # Docker services orchestration
+├── Dockerfile            # Backend container definition
 └── requirements.txt      # Project dependencies
 ```
 
@@ -75,6 +78,38 @@ alembic upgrade head
 uvicorn app.main:app --reload
 ```
 The API will be available at `http://localhost:8000`.
+
+---
+
+## 🐳 Docker Setup
+
+For a containerized environment (recommended for development), you can use Docker Compose. This will spin up both the FastAPI application and a PostgreSQL database.
+
+### 1. Prerequisites
+- [Docker](https://docs.docker.com/get-docker/)
+- [Docker Compose](https://docs.docker.com/compose/install/)
+
+### 2. Configure Environment
+Ensure your `.env` file has the Postgres credentials set:
+```bash
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=thepassword
+POSTGRES_DB=autopedicare
+```
+*Note: The `DATABASE_URL` is automatically handled inside Docker using the `db` service name.*
+
+### 3. Build and Run
+```bash
+docker-compose up --build
+```
+
+The system will:
+1.  Launch a PostgreSQL 16 container.
+2.  Wait for the database to be healthy.
+3.  Automatically run `alembic upgrade head` to apply migrations.
+4.  Start the FastAPI server with hot-reloading enabled.
+
+Access the API at `http://localhost:8000` and the Postgres database at `localhost:5432`.
 
 ---
 
