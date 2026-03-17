@@ -120,7 +120,19 @@ async def test_google_login_invalid_token(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_middleware_ip_capture():
+async def test_middleware_ip_capture(monkeypatch):
+    # Mock the geo service to return US location
+    async def mock_get_location(ip):
+        return {
+            "country": "US",
+            "state": "California",
+            "city": "Mountain View",
+            "latitude": 37.386,
+            "longitude": -122.084,
+        }
+    
+    monkeypatch.setattr("app.services.geo.get_location_from_ip", mock_get_location)
+    
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
     ) as ac:
