@@ -1,6 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, DateTime, Float, ForeignKey
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Column, String, DateTime, Float, ForeignKey, UUID
 from datetime import datetime, timezone
 from app.api.dependencies import Base
 
@@ -8,8 +7,8 @@ from app.api.dependencies import Base
 class UserLoginHistory(Base):
     __tablename__ = "user_login_history"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    id = Column(UUID, primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID, ForeignKey("users.id"), nullable=False)
     ip_address = Column(String)
     device = Column(String)
     os = Column(String)
