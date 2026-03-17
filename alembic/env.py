@@ -8,6 +8,7 @@ from alembic import context
 from dotenv import load_dotenv
 from app.api.dependencies import Base
 from app.models import user, audit
+from app.models.fleet import vehicles, drivers, assignments, trips
 
 load_dotenv()
 

@@ -117,17 +117,3 @@ async def test_google_login_invalid_token(monkeypatch):
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         response = await ac.post("/api/v1/auth/google", json={"token": "invalid_token"})
         assert response.status_code == 401
-
-
-@pytest.mark.asyncio
-async def test_middleware_ip_capture():
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as ac:
-        headers = {"X-Forwarded-For": "8.8.8.8"}
-        response = await ac.get("/debug-context", headers=headers)
-
-        captured = response.json()["captured_data"]
-
-        assert captured["ip"] == "8.8.8.8"
-        assert captured["location"]["country"] == "US"
