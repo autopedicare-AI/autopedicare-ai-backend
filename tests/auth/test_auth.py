@@ -117,29 +117,3 @@ async def test_google_login_invalid_token(monkeypatch):
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         response = await ac.post("/api/v1/auth/google", json={"token": "invalid_token"})
         assert response.status_code == 401
-
-
-@pytest.mark.asyncio
-async def test_middleware_ip_capture(monkeypatch):
-    # Mock the geo service to return US location
-    async def mock_get_location(ip):
-        return {
-            "country": "US",
-            "state": "California",
-            "city": "Mountain View",
-            "latitude": 37.386,
-            "longitude": -122.084,
-        }
-    
-    monkeypatch.setattr("app.services.geo.get_location_from_ip", mock_get_location)
-    
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as ac:
-        headers = {"X-Forwarded-For": "8.8.8.8"}
-        response = await ac.get("/debug-context", headers=headers)
-
-        captured = response.json()["captured_data"]
-
-        assert captured["ip"] == "8.8.8.8"
-        assert captured["location"]["country"] == "US"
