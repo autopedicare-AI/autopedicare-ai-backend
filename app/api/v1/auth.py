@@ -1,5 +1,8 @@
 from fastapi import APIRouter, Request, HTTPException, Depends, status
 from jose import JWTError
+from loguru import logger
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 from app.core.security import create_access_token, create_refresh_token, verify_token
 from app.services.auth.google_auth import verify_google_token
@@ -17,6 +20,8 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
+limiter = Limiter(key_func=get_remote_address)
+
 
 security = HTTPBearer()
 
@@ -31,21 +36,26 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
     try:
         payload = verify_token(token)
         if not payload:
+            logger.error("Auth failure: invalid token provided")
             raise HTTPException(status_code=401, detail="Invalid token")
         
         user_id = payload.get("sub")
         if not user_id:
+            logger.error("Auth failure: token missing 'sub' claim")
             raise HTTPException(status_code=401, detail="Invalid token payload")
         
         user = db.query(User).filter(User.id == user_id).first()
         if not user:
+            logger.error("Auth failure: user not found", user_id=user_id)
             raise HTTPException(status_code=401, detail="User not found")
         
         return user
-    except JWTError:
+    except JWTError as exc:
+        logger.error("Auth failure: JWTError while validating token", error=str(exc))
         raise credentials_exception
 
 
+@limiter.limit("5/minute")
 @router.post("/google", response_model=AuthResponse)
 async def google_auth(
     request: Request, payload: GoogleLoginRequest, db: Session = Depends(get_db)
@@ -98,6 +108,7 @@ async def google_auth(
     }
 
 
+@limiter.limit("5/minute")
 @router.post("/apple", response_model=AuthResponse)
 async def apple_login(
     payload: AppleLoginRequest, request: Request, db: Session = Depends(get_db)
@@ -152,6 +163,7 @@ async def apple_login(
     }
 
 
+@limiter.limit("5/minute")
 @router.post("/refresh", response_model=AuthResponse)
 async def refresh_token(payload: RefreshRequest):
     token = verify_token(payload.refresh_token)
@@ -171,5 +183,3 @@ async def refresh_token(payload: RefreshRequest):
         "token_type": "bearer",
         "user": {},  # Refresh might not have full user data in token
     }
-
-
