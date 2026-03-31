@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Request, HTTPException, Depends
-from fastapi.concurrency import run_in_threadpool
+from fastapi import APIRouter, Request, HTTPException, Depends, status
+from jose import JWTError
 from sqlalchemy.orm import Session
 from app.core.security import create_access_token, create_refresh_token, verify_token
 from app.services.auth.google_auth import verify_google_token
@@ -13,8 +13,37 @@ from app.schemas.auth import (
     AuthResponse,
     RefreshRequest,
 )
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+
+security = HTTPBearer()
+
+def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    
+    token = credentials.credentials
+    try:
+        payload = verify_token(token)
+        if not payload:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+        
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+        
+        return user
+    except JWTError:
+        raise credentials_exception
 
 
 @router.post("/google", response_model=AuthResponse)
@@ -142,3 +171,5 @@ async def refresh_token(payload: RefreshRequest):
         "token_type": "bearer",
         "user": {},  # Refresh might not have full user data in token
     }
+
+

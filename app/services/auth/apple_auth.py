@@ -1,4 +1,5 @@
 import httpx
+from loguru import logger
 from jose import jwt, jwk
 from jose.utils import base64url_decode
 from fastapi import HTTPException, status
@@ -41,7 +42,8 @@ async def verify_apple_token(token: str):
             "email_verified": payload.get("email_verified"),
         }
     except Exception as e:
+        logger.exception("Apple token verification failed | token_prefix={prefix}", prefix=token[:10])
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Apple token verification failed: {str(e)}",
+            detail=f"Could not validate Apple credentials",
         )

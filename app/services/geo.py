@@ -1,4 +1,5 @@
 import httpx
+from loguru import logger
 from app.core.config import settings
 
 GEO_IP_API_URL = "https://ipinfo.io/"
@@ -11,21 +12,32 @@ async def get_location_from_ip(ip: str):
             response = await client.get(url)
             response.raise_for_status()
             data = response.json()
-            
+
             # ipinfo returns 'loc' as "lat,lon" string
-            lat_lon = data.get("loc", ",").split(",")
-            lat = float(lat_lon[0]) if len(lat_lon) > 0 else None
-            lon = float(lat_lon[1]) if len(lat_lon) > 1 else None
-            
-            return {
-                "country": data.get("country"),
-                "state": data.get("region"),
-                "city": data.get("city"),
-                "latitude": lat,
-                "longitude": lon,
-            }
-    except Exception as e:
-        print(f"Error fetching geolocation: {e}")
+            loc = data.get("loc", "")
+            lat, lon = None, None
+            if loc:
+                parts = loc.split(",")
+                if len(parts) == 2 and parts[0] and parts[1]:
+                    try:
+                        lat = float(parts[0])
+                        lon = float(parts[1])
+                    except ValueError as e:
+                        logger.warning(
+                            "Invalid loc in geolocation response: {loc} | error={error}",
+                            loc=loc,
+                            error=e,
+                        )
+
+                        return {
+                            "country": data.get("country"),
+                            "state": data.get("region"),
+                            "city": data.get("city"),
+                            "latitude": lat,
+                            "longitude": lon,
+                        }
+    except Exception:
+        logger.exception(f"Error fetching geolocation for IP {ip}")
         return {
             "country": None,
             "state": None,

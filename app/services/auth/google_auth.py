@@ -1,3 +1,4 @@
+from loguru import logger
 from google.oauth2 import id_token
 from google.auth.transport import requests
 from app.core.config import settings
@@ -7,7 +8,7 @@ from fastapi import HTTPException, status
 async def verify_google_token(token: str):
     try:
         # verifying token, audience and expired time
-        id_info = await id_token.verify_oauth2_token(
+        id_info = id_token.verify_oauth2_token(
             token, requests.Request(), settings.GOOGLE_CLIENT_ID
         )
 
@@ -21,7 +22,8 @@ async def verify_google_token(token: str):
             "email_verified": id_info.get("email_verified"),
         }
     except Exception as e:
+        logger.exception("Google token verification failed | token_prefix={prefix}", prefix=token[:10])
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Google token verification failed: {str(e)}",
+            detail=f"Google token verification failed",
         )

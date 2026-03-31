@@ -1,3 +1,4 @@
+from loguru import logger
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException, status
@@ -20,30 +21,54 @@ class DriverService:
             return DriverResponse.model_validate(driver)
         except IntegrityError:
             self.db.rollback()
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="License number or email already exists")
+            logger.warning(
+                "Driver create integrity error | email={}",
+                driver_data.email,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="A driver with this email or license number already exists",
+            )
+        except Exception:
+            self.db.rollback()
+            logger.exception("Driver create unexpected error")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Internal server error",
+            )
 
     def get_driver(self, driver_id: str) -> DriverResponse:
         try:
             driver_uuid = UUID(driver_id)
         except ValueError:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid driver ID")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid driver ID"
+            )
         driver = self.db.query(Driver).filter(Driver.id == driver_uuid).first()
         if not driver:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Driver not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Driver not found"
+            )
         return DriverResponse.model_validate(driver)
 
     def get_drivers(self, skip: int = 0, limit: int = 10) -> List[DriverResponse]:
         drivers = self.db.query(Driver).offset(skip).limit(limit).all()
         return [DriverResponse.model_validate(d) for d in drivers]
 
-    def update_driver(self, driver_id: str, driver_data: DriverUpdate) -> DriverResponse:
+    def update_driver(
+        self, driver_id: str, driver_data: DriverUpdate
+    ) -> DriverResponse:
         try:
             driver_uuid = UUID(driver_id)
         except ValueError:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid driver ID")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid driver ID"
+            )
         driver = self.db.query(Driver).filter(Driver.id == driver_uuid).first()
         if not driver:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Driver not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Driver not found"
+            )
         for key, value in driver_data.model_dump(exclude_unset=True).items():
             setattr(driver, key, value)
         try:
@@ -52,15 +77,36 @@ class DriverService:
             return DriverResponse.model_validate(driver)
         except IntegrityError:
             self.db.rollback()
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="License number or email already exists")
+            logger.warning(
+                "Driver update integrity error | driver_id={driver_id}",
+                driver_id=driver_id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="License number or email already exists",
+            )
+        except Exception:
+            self.db.rollback()
+            logger.exception(
+                "Driver update unexpected error| driver_id={driver_id}",
+                driver_id=driver_id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Internal server error",
+            )
 
     def delete_driver(self, driver_id: str):
         try:
             driver_uuid = UUID(driver_id)
         except ValueError:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid driver ID")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid driver ID"
+            )
         driver = self.db.query(Driver).filter(Driver.id == driver_uuid).first()
         if not driver:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Driver not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Driver not found"
+            )
         self.db.delete(driver)
         self.db.commit()

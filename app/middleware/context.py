@@ -1,4 +1,5 @@
 import uuid
+from loguru import logger
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from user_agents import parse
@@ -39,4 +40,23 @@ class UserContextMiddleware(BaseHTTPMiddleware):
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
-        return await call_next(request)
+        logger.info(
+            f"Request: {request.method} {request.url} | Request ID: {request_id} | IP: {ip} | Device: {device} | OS: {os} | Browser: {browser}"
+        )
+
+        try:
+            response = await call_next(request)
+        except Exception as e:
+            logger.exception(
+                "Unhandled exception executing request {method} {url} | Request ID: {request_id}",
+                method=request.method,
+                url=request.url,
+                request_id=request_id,
+            )
+            raise
+
+        logger.info(
+            f"Response: {request.method} {request.url} | Request ID: {request_id} | Status: {response.status_code}"
+        )
+
+        return response
