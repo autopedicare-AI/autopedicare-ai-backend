@@ -19,7 +19,7 @@ def db_session():
 
 
 @pytest.mark.asyncio
-async def test_create_vehicle():
+async def test_create_vehicle(auth_headers):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         vehicle_data = {
@@ -31,7 +31,7 @@ async def test_create_vehicle():
             "status": "active"
         }
 
-        response = await ac.post("/api/v1/vehicles", json=vehicle_data)
+        response = await ac.post("/api/v1/vehicles", json=vehicle_data, headers=auth_headers)
         assert response.status_code == 201
         data = response.json()
         assert data["plate_number"] == "ABC123"
@@ -41,17 +41,17 @@ async def test_create_vehicle():
 
 
 @pytest.mark.asyncio
-async def test_get_vehicles():
+async def test_get_vehicles(auth_headers):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        response = await ac.get("/api/v1/vehicles")
+        response = await ac.get("/api/v1/vehicles", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
         assert isinstance(data, list)
 
 
 @pytest.mark.asyncio
-async def test_create_duplicate_vehicle():
+async def test_create_duplicate_vehicle(auth_headers):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         vehicle_data = {
@@ -64,17 +64,17 @@ async def test_create_duplicate_vehicle():
         }
 
         # Create first
-        response1 = await ac.post("/api/v1/vehicles", json=vehicle_data)
+        response1 = await ac.post("/api/v1/vehicles", json=vehicle_data, headers=auth_headers)
         assert response1.status_code == 201
 
         # Try to create duplicate
-        response2 = await ac.post("/api/v1/vehicles", json=vehicle_data)
-        assert response2.status_code == 400
+        response2 = await ac.post("/api/v1/vehicles", json=vehicle_data, headers=auth_headers)
+        assert response2.status_code == 409
         assert "Plate number already exists" in response2.json()["detail"]
 
 
 @pytest.mark.asyncio
-async def test_update_vehicle():
+async def test_update_vehicle(auth_headers):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         # Create vehicle
@@ -86,20 +86,20 @@ async def test_update_vehicle():
             "vehicle_type": "car",
             "status": "active"
         }
-        create_response = await ac.post("/api/v1/vehicles", json=vehicle_data)
+        create_response = await ac.post("/api/v1/vehicles", json=vehicle_data, headers=auth_headers)
         assert create_response.status_code == 201
         vehicle_id = create_response.json()["id"]
 
         # Update vehicle
         update_data = {"status": "maintenance"}
-        update_response = await ac.put(f"/api/v1/vehicles/{vehicle_id}", json=update_data)
+        update_response = await ac.put(f"/api/v1/vehicles/{vehicle_id}", json=update_data, headers=auth_headers)
         assert update_response.status_code == 200
         data = update_response.json()
         assert data["status"] == "maintenance"
 
 
 @pytest.mark.asyncio
-async def test_delete_vehicle():
+async def test_delete_vehicle(auth_headers):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         # Create vehicle
@@ -111,14 +111,14 @@ async def test_delete_vehicle():
             "vehicle_type": "car",
             "status": "active"
         }
-        create_response = await ac.post("/api/v1/vehicles", json=vehicle_data)
+        create_response = await ac.post("/api/v1/vehicles", json=vehicle_data, headers=auth_headers)
         assert create_response.status_code == 201
         vehicle_id = create_response.json()["id"]
 
         # Delete vehicle
-        delete_response = await ac.delete(f"/api/v1/vehicles/{vehicle_id}")
+        delete_response = await ac.delete(f"/api/v1/vehicles/{vehicle_id}", headers=auth_headers)
         assert delete_response.status_code == 204
 
         # Try to get deleted vehicle
-        get_response = await ac.get(f"/api/v1/vehicles/{vehicle_id}")
+        get_response = await ac.get(f"/api/v1/vehicles/{vehicle_id}", headers=auth_headers)
         assert get_response.status_code == 404

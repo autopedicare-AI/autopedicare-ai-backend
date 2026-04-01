@@ -14,6 +14,7 @@ from app.api.v1.fleet.trips import router as trips_router
 from app.api.v1.fleet.vehicles import router as vehicles_router
 
 
+logger.remove()
 logger.add(
     lambda msg: print(msg, end=""),
     level="INFO",
@@ -51,6 +52,16 @@ app.include_router(
 app.include_router(
     vehicles_router, prefix="/api/v1", tags=["Vehicles"], dependencies=[Depends(get_current_user)]
 )
+
+
+@app.get("/health/live")
+async def health_live():
+    return {"status": "alive"}
+
+
+@app.get("/health/ready")
+async def health_ready():
+    return {"status": "ready"}
 
 
 @app.get("/")

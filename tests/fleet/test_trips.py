@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 
 @pytest.mark.asyncio
-async def test_create_trip():
+async def test_create_trip(auth_headers):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         # Create driver
@@ -16,7 +16,7 @@ async def test_create_trip():
             "email": "trip.driver@example.com",
             "status": "active"
         }
-        driver_response = await ac.post("/api/v1/drivers", json=driver_data)
+        driver_response = await ac.post("/api/v1/drivers", json=driver_data, headers=auth_headers)
         assert driver_response.status_code == 201
         driver_id = driver_response.json()["id"]
 
@@ -29,7 +29,7 @@ async def test_create_trip():
             "vehicle_type": "car",
             "status": "active"
         }
-        vehicle_response = await ac.post("/api/v1/vehicles", json=vehicle_data)
+        vehicle_response = await ac.post("/api/v1/vehicles", json=vehicle_data, headers=auth_headers)
         assert vehicle_response.status_code == 201
         vehicle_id = vehicle_response.json()["id"]
 
@@ -43,7 +43,7 @@ async def test_create_trip():
             "distance_km": 350.5,
             "status": "ongoing"
         }
-        response = await ac.post("/api/v1/trips", json=trip_data)
+        response = await ac.post("/api/v1/trips", json=trip_data, headers=auth_headers)
         assert response.status_code == 201
         data = response.json()
         assert data["driver_id"] == driver_id
@@ -55,17 +55,17 @@ async def test_create_trip():
 
 
 @pytest.mark.asyncio
-async def test_get_trips():
+async def test_get_trips(auth_headers):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        response = await ac.get("/api/v1/trips")
+        response = await ac.get("/api/v1/trips", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
         assert isinstance(data, list)
 
 
 @pytest.mark.asyncio
-async def test_update_trip():
+async def test_update_trip(auth_headers):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         # Create driver and vehicle
@@ -76,7 +76,7 @@ async def test_update_trip():
             "email": "update.trip.driver@example.com",
             "status": "active"
         }
-        driver_response = await ac.post("/api/v1/drivers", json=driver_data)
+        driver_response = await ac.post("/api/v1/drivers", json=driver_data, headers=auth_headers)
         driver_id = driver_response.json()["id"]
 
         vehicle_data = {
@@ -87,7 +87,7 @@ async def test_update_trip():
             "vehicle_type": "car",
             "status": "active"
         }
-        vehicle_response = await ac.post("/api/v1/vehicles", json=vehicle_data)
+        vehicle_response = await ac.post("/api/v1/vehicles", json=vehicle_data, headers=auth_headers)
         vehicle_id = vehicle_response.json()["id"]
 
         # Create trip
@@ -100,7 +100,7 @@ async def test_update_trip():
             "distance_km": 600.0,
             "status": "ongoing"
         }
-        create_response = await ac.post("/api/v1/trips", json=trip_data)
+        create_response = await ac.post("/api/v1/trips", json=trip_data, headers=auth_headers)
         trip_id = create_response.json()["id"]
 
         # Update trip
@@ -109,7 +109,7 @@ async def test_update_trip():
             "end_time": datetime.now(timezone.utc).isoformat(),
             "distance_km": 650.0
         }
-        update_response = await ac.put(f"/api/v1/trips/{trip_id}", json=update_data)
+        update_response = await ac.put(f"/api/v1/trips/{trip_id}", json=update_data, headers=auth_headers)
         assert update_response.status_code == 200
         data = update_response.json()
         assert data["status"] == "completed"
@@ -118,7 +118,7 @@ async def test_update_trip():
 
 
 @pytest.mark.asyncio
-async def test_get_trip():
+async def test_get_trip(auth_headers):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         # Create driver and vehicle
@@ -129,7 +129,7 @@ async def test_get_trip():
             "email": "get.trip.driver@example.com",
             "status": "active"
         }
-        driver_response = await ac.post("/api/v1/drivers", json=driver_data)
+        driver_response = await ac.post("/api/v1/drivers", json=driver_data, headers=auth_headers)
         driver_id = driver_response.json()["id"]
 
         vehicle_data = {
@@ -140,7 +140,7 @@ async def test_get_trip():
             "vehicle_type": "car",
             "status": "active"
         }
-        vehicle_response = await ac.post("/api/v1/vehicles", json=vehicle_data)
+        vehicle_response = await ac.post("/api/v1/vehicles", json=vehicle_data, headers=auth_headers)
         vehicle_id = vehicle_response.json()["id"]
 
         # Create trip
@@ -153,11 +153,11 @@ async def test_get_trip():
             "distance_km": 400.0,
             "status": "ongoing"
         }
-        create_response = await ac.post("/api/v1/trips", json=trip_data)
+        create_response = await ac.post("/api/v1/trips", json=trip_data, headers=auth_headers)
         trip_id = create_response.json()["id"]
 
         # Get specific trip
-        get_response = await ac.get(f"/api/v1/trips/{trip_id}")
+        get_response = await ac.get(f"/api/v1/trips/{trip_id}", headers=auth_headers)
         assert get_response.status_code == 200
         data = get_response.json()
         assert data["id"] == trip_id

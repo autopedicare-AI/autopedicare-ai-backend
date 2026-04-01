@@ -4,9 +4,11 @@ os.environ["DATABASE_URL"] = "sqlite:///test_db.db"
 
 import pytest
 import time
+from loguru import logger
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from app.api.dependencies import Base
+
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -39,6 +41,21 @@ def setup_test_database():
         os.remove("test.db")
 
 
+@pytest.fixture(autouse=True)
+def mock_geo_service(monkeypatch):
+    """Mock the geo service to avoid external API calls during tests"""
+    async def mock_get_location_from_ip(ip: str):
+        return {
+            "country": "US",
+            "state": "CA",
+            "city": "San Francisco",
+            "latitude": 37.7749,
+            "longitude": -122.4194,
+        }
+    
+    monkeypatch.setattr("app.services.geo.get_location_from_ip", mock_get_location_from_ip)
+
+
 @pytest.fixture
 def db_session():
     """Provide a database session for testing"""
@@ -48,4 +65,31 @@ def db_session():
         yield db
     finally:
         db.rollback()
+
+
+@pytest.fixture
+def auth_headers():
+    """Generate valid JWT auth headers for testing protected endpoints"""
+    from app.core.security import create_access_token
+    from app.models.user import User
+    from app.api.dependencies import SessionLocal
+    import uuid
+
+    db = SessionLocal()
+    try:
+        unique_suffix = uuid.uuid4().hex
+        user = User(
+            email=f"test+{unique_suffix}@autopedicare.com",
+            provider="google",
+            provider_id=str(uuid.uuid4()),
+            is_verified=True,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+        access_token = create_access_token({"sub": str(user.id)})
+        return {"Authorization": f"Bearer {access_token}"}
+    finally:
+        db.close()
         db.close()
