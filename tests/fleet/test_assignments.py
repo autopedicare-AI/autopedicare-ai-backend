@@ -5,7 +5,7 @@ import uuid
 
 
 @pytest.mark.asyncio
-async def test_create_assignment():
+async def test_create_assignment(auth_headers):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         # Create driver
@@ -16,7 +16,7 @@ async def test_create_assignment():
             "email": "test.driver@example.com",
             "status": "active"
         }
-        driver_response = await ac.post("/api/v1/drivers", json=driver_data)
+        driver_response = await ac.post("/api/v1/drivers", json=driver_data, headers=auth_headers)
         assert driver_response.status_code == 201
         driver_id = driver_response.json()["id"]
 
@@ -29,7 +29,7 @@ async def test_create_assignment():
             "vehicle_type": "car",
             "status": "active"
         }
-        vehicle_response = await ac.post("/api/v1/vehicles", json=vehicle_data)
+        vehicle_response = await ac.post("/api/v1/vehicles", json=vehicle_data, headers=auth_headers)
         assert vehicle_response.status_code == 201
         vehicle_id = vehicle_response.json()["id"]
 
@@ -39,7 +39,7 @@ async def test_create_assignment():
             "vehicle_id": vehicle_id,
             "status": "active"
         }
-        response = await ac.post("/api/v1/assignments", json=assignment_data)
+        response = await ac.post("/api/v1/assignments", json=assignment_data, headers=auth_headers)
         assert response.status_code == 201
         data = response.json()
         assert data["driver_id"] == driver_id
@@ -50,17 +50,17 @@ async def test_create_assignment():
 
 
 @pytest.mark.asyncio
-async def test_get_assignments():
+async def test_get_assignments(auth_headers):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        response = await ac.get("/api/v1/assignments")
+        response = await ac.get("/api/v1/assignments", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
         assert isinstance(data, list)
 
 
 @pytest.mark.asyncio
-async def test_duplicate_assignment():
+async def test_duplicate_assignment(auth_headers):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         # Create driver
@@ -71,7 +71,7 @@ async def test_duplicate_assignment():
             "email": "dup.driver@example.com",
             "status": "active"
         }
-        driver_response = await ac.post("/api/v1/drivers", json=driver_data)
+        driver_response = await ac.post("/api/v1/drivers", json=driver_data, headers=auth_headers)
         assert driver_response.status_code == 201
         driver_id = driver_response.json()["id"]
 
@@ -84,7 +84,7 @@ async def test_duplicate_assignment():
             "vehicle_type": "car",
             "status": "active"
         }
-        vehicle_response = await ac.post("/api/v1/vehicles", json=vehicle_data)
+        vehicle_response = await ac.post("/api/v1/vehicles", json=vehicle_data, headers=auth_headers)
         assert vehicle_response.status_code == 201
         vehicle_id = vehicle_response.json()["id"]
 
@@ -94,17 +94,17 @@ async def test_duplicate_assignment():
             "vehicle_id": vehicle_id,
             "status": "active"
         }
-        response1 = await ac.post("/api/v1/assignments", json=assignment_data)
+        response1 = await ac.post("/api/v1/assignments", json=assignment_data, headers=auth_headers)
         assert response1.status_code == 201
 
         # Try to create duplicate assignment for same driver
-        response2 = await ac.post("/api/v1/assignments", json=assignment_data)
-        assert response2.status_code == 400
+        response2 = await ac.post("/api/v1/assignments", json=assignment_data, headers=auth_headers)
+        assert response2.status_code == 409
         assert "Driver already assigned" in response2.json()["detail"]
 
 
 @pytest.mark.asyncio
-async def test_update_assignment():
+async def test_update_assignment(auth_headers):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         # Create driver and vehicle
@@ -115,7 +115,7 @@ async def test_update_assignment():
             "email": "update.driver@example.com",
             "status": "active"
         }
-        driver_response = await ac.post("/api/v1/drivers", json=driver_data)
+        driver_response = await ac.post("/api/v1/drivers", json=driver_data, headers=auth_headers)
         driver_id = driver_response.json()["id"]
 
         vehicle_data = {
@@ -126,7 +126,7 @@ async def test_update_assignment():
             "vehicle_type": "car",
             "status": "active"
         }
-        vehicle_response = await ac.post("/api/v1/vehicles", json=vehicle_data)
+        vehicle_response = await ac.post("/api/v1/vehicles", json=vehicle_data, headers=auth_headers)
         vehicle_id = vehicle_response.json()["id"]
 
         # Create assignment
@@ -135,19 +135,19 @@ async def test_update_assignment():
             "vehicle_id": vehicle_id,
             "status": "active"
         }
-        create_response = await ac.post("/api/v1/assignments", json=assignment_data)
+        create_response = await ac.post("/api/v1/assignments", json=assignment_data, headers=auth_headers)
         assignment_id = create_response.json()["id"]
 
         # Update assignment
         update_data = {"status": "inactive"}
-        update_response = await ac.put(f"/api/v1/assignments/{assignment_id}", json=update_data)
+        update_response = await ac.put(f"/api/v1/assignments/{assignment_id}", json=update_data, headers=auth_headers)
         assert update_response.status_code == 200
         data = update_response.json()
         assert data["status"] == "inactive"
 
 
 @pytest.mark.asyncio
-async def test_delete_assignment():
+async def test_delete_assignment(auth_headers):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         # Create driver and vehicle
@@ -158,7 +158,7 @@ async def test_delete_assignment():
             "email": "delete.driver@example.com",
             "status": "active"
         }
-        driver_response = await ac.post("/api/v1/drivers", json=driver_data)
+        driver_response = await ac.post("/api/v1/drivers", json=driver_data, headers=auth_headers)
         driver_id = driver_response.json()["id"]
 
         vehicle_data = {
@@ -169,7 +169,7 @@ async def test_delete_assignment():
             "vehicle_type": "car",
             "status": "active"
         }
-        vehicle_response = await ac.post("/api/v1/vehicles", json=vehicle_data)
+        vehicle_response = await ac.post("/api/v1/vehicles", json=vehicle_data, headers=auth_headers)
         vehicle_id = vehicle_response.json()["id"]
 
         # Create assignment
@@ -178,9 +178,9 @@ async def test_delete_assignment():
             "vehicle_id": vehicle_id,
             "status": "active"
         }
-        create_response = await ac.post("/api/v1/assignments", json=assignment_data)
+        create_response = await ac.post("/api/v1/assignments", json=assignment_data, headers=auth_headers)
         assignment_id = create_response.json()["id"]
 
         # Delete assignment
-        delete_response = await ac.delete(f"/api/v1/assignments/{assignment_id}")
+        delete_response = await ac.delete(f"/api/v1/assignments/{assignment_id}", headers=auth_headers)
         assert delete_response.status_code == 204
