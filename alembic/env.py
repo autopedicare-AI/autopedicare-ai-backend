@@ -6,9 +6,10 @@ from sqlalchemy import pool
 
 from alembic import context
 from dotenv import load_dotenv
-from app.api.dependencies import Base
+from app.db.session import Base
 from app.models import user, audit
 from app.models.fleet import vehicles, drivers, assignments, trips
+from app.models.e_commerce import carts, vendors, products, product_images, ai_scans, compatibility, orders
 
 load_dotenv()
 

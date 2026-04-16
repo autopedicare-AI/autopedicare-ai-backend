@@ -29,15 +29,15 @@ async def get_location_from_ip(ip: str):
                             error=e,
                         )
 
-                        return {
-                            "country": data.get("country"),
-                            "state": data.get("region"),
-                            "city": data.get("city"),
-                            "latitude": lat,
-                            "longitude": lon,
-                        }
+            return {
+                "country": data.get("country"),
+                "state": data.get("region"),
+                "city": data.get("city"),
+                "latitude": lat,
+                "longitude": lon,
+            }
     except Exception:
-        logger.exception(f"Error fetching geolocation for IP {ip}")
+        logger.exception("Error fetching geolocation for IP {ip}", ip=ip)
         return {
             "country": None,
             "state": None,

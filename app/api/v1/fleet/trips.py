@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from typing import List
-from app.api.dependencies import get_db
+from app.db.session import get_db
 from app.services.fleet.trips import TripService
 from app.schemas.fleet.trips import TripCreate, TripUpdate, TripResponse
 

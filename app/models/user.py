@@ -1,7 +1,8 @@
 import uuid
 from sqlalchemy import Column, Boolean, String, DateTime, UUID
 from datetime import datetime, timezone
-from app.api.dependencies import Base
+from sqlalchemy.orm import relationship
+from app.db.session import Base
 
 
 class User(Base):
@@ -15,3 +16,5 @@ class User(Base):
     created_at = Column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
+
+    vendor = relationship("Vendor", back_populates="owner", uselist=False)

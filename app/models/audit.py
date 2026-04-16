@@ -1,7 +1,7 @@
 import uuid
 from sqlalchemy import Column, String, DateTime, Float, ForeignKey, UUID
 from datetime import datetime, timezone
-from app.api.dependencies import Base
+from app.db.session import Base
 
 
 class UserLoginHistory(Base):
