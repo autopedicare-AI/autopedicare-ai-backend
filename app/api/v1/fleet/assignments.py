@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from typing import List
-from app.api.dependencies import get_db
+from app.db.session import get_db
 from app.services.fleet.assignments import AssignmentService
 from app.schemas.fleet.assignments import AssignmentCreate, AssignmentUpdate, AssignmentResponse
 

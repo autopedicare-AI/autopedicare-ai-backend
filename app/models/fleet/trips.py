@@ -2,7 +2,7 @@ import uuid
 from sqlalchemy import Column, String, Float, Enum, ForeignKey, DateTime, UUID
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
-from app.api.dependencies import Base
+from app.db.session import Base
 import enum
 
 
