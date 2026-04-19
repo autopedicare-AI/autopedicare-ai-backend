@@ -27,3 +27,19 @@ jobs:
     - name: Run tests
       run: |
         pytest tests/ -v --cov=app --cov-report=term-missing
+      env:
+          SECRET_KEY: "super-secret-test-key"
+          GOOGLE_CLIENT_ID: "test-google-id"
+          GOOGLE_CLIENT_SECRET: "test-google-secret"
+          APPLE_CLIENT_ID: "test-apple-id"
+          APPLE_TEAM_ID: "test-apple-team"
+          APPLE_KEY_ID: "test-apple-key"
+          IP_API_KEY: "test-ip-key"
+          JWT_ISSUER: "autopedicare-test"
+          JWT_AUDIENCE: "autopedicare-users-test"
+          AWS_ACCESS_KEY_ID: "test-aws-key"
+          AWS_SECRET_ACCESS_KEY: "test-aws-secret"
+          AWS_BUCKET_NAME: "test-bucket"
+          PAYSTACK_SECRET_KEY: "sk_test_123456789"
+          PAYSTACK_BASE_URL: "https://api.paystack.co"
+      
