@@ -114,6 +114,6 @@ async def read_root():
     return {"message": "Welcome to the AutoPedicare API!"}
 
 
-# @app.get("/debug-middleware")
-# async def debug_middleware(request: Request):
-#     return request.state.context
+@app.get("/health")
+async def health():
+    return {"status": "healthy"}

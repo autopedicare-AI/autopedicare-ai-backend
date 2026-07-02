@@ -1,17 +1,19 @@
 import uuid
-
 from fastapi import APIRouter, Request, HTTPException, Depends, status
 from loguru import logger
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from app.core.security import create_access_token, create_refresh_token, verify_token
 from app.services.auth.google_auth import verify_google_token
 from app.services.auth.apple_auth import verify_apple_token
 from app.models.user import User
-from app.models.audit import UserLoginHistory
+from app.services.auth.session_service import SessionService
 from app.db.session import get_db
+from app.core.config import settings
+from app.services.auth.auth_service import get_or_create_oauth_user, create_login_audit
 from app.schemas.auth import (
     GoogleLoginRequest,
     AppleLoginRequest,
@@ -27,9 +29,9 @@ limiter = Limiter(key_func=get_remote_address)
 @limiter.limit("5/minute")
 @router.post("/google", response_model=AuthResponse)
 async def google_auth(
-    request: Request, payload: GoogleLoginRequest, db: Session = Depends(get_db)
+    request: Request, payload: GoogleLoginRequest, db: AsyncSession = Depends(get_db)
 ):
-    context = request.state.context
+    context = getattr(request.state, "context", {})
 
     id_token = payload.token
 
@@ -38,63 +40,53 @@ async def google_auth(
 
     google_user = await verify_google_token(id_token)
 
-    user = db.query(User).filter(User.provider_id == google_user["sub"]).first()
+    if not google_user:
+        raise HTTPException(status_code=401, detail="Invalid Google token")
 
     try:
-
-        if not user:
-            user = User(
-                email=google_user["email"],
-                provider="google",
-                provider_id=google_user["sub"],
-                is_verified=google_user["email_verified"],
-            )
-            db.add(user)
-            db.commit()
-
-        audit_log = UserLoginHistory(
-            user_id=user.id,
-            ip_address=context["ip"],
-            device=context["device"],
-            os=context["os"],
-            browser=context["browser"],
-            latitude=(
-                context.get("location", {}).get("latitude")
-                if context.get("location")
-                else None
-            ),
-            longitude=(
-                context.get("location", {}).get("longitude")
-                if context.get("location")
-                else None
-            ),
-            country=(
-                context.get("location", {}).get("country")
-                if context.get("location")
-                else None
-            ),
-            city=(
-                context.get("location", {}).get("city")
-                if context.get("location")
-                else None
-            ),
+        user = await get_or_create_oauth_user(
+            db=db,
+            email=google_user["email"],
             provider="google",
-            user_agent=context["user_agent"],
+            provider_id=google_user["sub"],
+            is_verified=google_user["email_verified"],
+        )
+
+        audit_log = await create_login_audit(
+            db=db,
+            user=user,
+            context=context,
+            provider="google",
         )
         db.add(audit_log)
-        db.commit()
+        await db.commit()
     except Exception as e:
-        logger.error("Google auth transaction failed: {error}", error=e)
+        await db.rollback()
+        logger.error("Google auth transaction failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error",
         )
 
-    db.refresh(user)
+    await db.refresh(user)
 
     access_token = create_access_token({"sub": str(user.id)})
     refresh_token = create_refresh_token({"sub": str(user.id)})
-
+    refresh_payload = verify_token(refresh_token)
+    
+    try:
+        await SessionService.store_refresh_token(
+            user_id=user.id,
+            jti=refresh_payload.get("jti"),
+            expires_in=settings.REFRESH_TOKEN_EXPIRE_DAYS,
+        )
+    except Exception as e:
+        logger.error("Failed to store refresh token")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error",
+        )
+    
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
@@ -106,7 +98,7 @@ async def google_auth(
 @limiter.limit("5/minute")
 @router.post("/apple", response_model=AuthResponse)
 async def apple_login(
-    payload: AppleLoginRequest, request: Request, db: Session = Depends(get_db)
+    payload: AppleLoginRequest, request: Request, db: AsyncSession = Depends(get_db)
 ):
     context = request.state.context
     token = payload.token
@@ -117,61 +109,50 @@ async def apple_login(
     if not apple_user:
         raise HTTPException(status_code=401, detail="Invalid Apple token")
 
-    user = db.query(User).filter(User.provider_id == apple_user["sub"]).first()
-
     try:
-        if not user:
-            user = User(
-                email=apple_user["email"],
-                provider="apple",
-                provider_id=apple_user["sub"],
-                is_verified=apple_user["email_verified"],
-            )
-            db.add(user)
-            db.commit()
-
-        audit_log = UserLoginHistory(
-            user_id=user.id,
-            ip_address=context["ip"],
-            device=context["device"],
-            os=context["os"],
-            browser=context["browser"],
-            latitude=(
-                context.get("location", {}).get("latitude")
-                if context.get("location")
-                else None
-            ),
-            longitude=(
-                context.get("location", {}).get("longitude")
-                if context.get("location")
-                else None
-            ),
-            country=(
-                context.get("location", {}).get("country")
-                if context.get("location")
-                else None
-            ),
-            city=(
-                context.get("location", {}).get("city")
-                if context.get("location")
-                else None
-            ),
+        user = await get_or_create_oauth_user(
+            db=db,
+            email=apple_user["email"],
             provider="apple",
-            user_agent=context["user_agent"],
+            provider_id=apple_user["sub"],
+            is_verified=apple_user["email_verified"],
         )
-        db.add(audit_log)
-        db.commit()
+
+        await create_login_audit(
+            db=db,
+            user=user,
+            context=context,
+            provider="apple",
+        )
+
+        await db.commit()
     except Exception as e:
-        logger.error("Apple auth transaction failed: {error}", error=e)
+        await db.rollback()
+        logger.error("Apple auth transaction failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error",
         )
 
-    db.refresh(user)
+    await db.refresh(user)
 
     access_token = create_access_token({"sub": str(user.id)})
     refresh_token = create_refresh_token({"sub": str(user.id)})
+    
+    refresh_payload = verify_token(refresh_token)
+    
+    try:
+        await SessionService.store_refresh_token(
+            user_id=user.id,
+            jti=refresh_payload.get("jti"),
+            expires_in=settings.REFRESH_TOKEN_EXPIRE_DAYS,
+        )
+    except Exception as e:
+        logger.error("Failed to store refresh token")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error",
+        )
 
     return {
         "access_token": access_token,
@@ -184,7 +165,7 @@ async def apple_login(
 @limiter.limit("5/minute")
 @router.post("/refresh")
 async def refresh_token(
-    request: Request, payload: RefreshRequest, db: Session = Depends(get_db)
+    request: Request, payload: RefreshRequest, db: AsyncSession = Depends(get_db)
 ):
     token = verify_token(payload.refresh_token)
     if not token:
@@ -201,6 +182,28 @@ async def refresh_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    jti = token.get("jti")
+
+    if not jti:
+        raise HTTPException(
+            status_code=401,
+            detail="Missing token ID",
+        )
+    
+    stored_session = await SessionService.validate_refresh_token(
+        jti=jti
+    )
+    
+    if not stored_session:
+        raise HTTPException(
+            status_code=401,
+            detail="Refresh token has been revoked",
+        )
+    
+    await SessionService.revoke_refresh_token(
+        jti=jti
+    )
+    
     user_id = token.get("sub")
     if not user_id:
         raise HTTPException(
@@ -216,20 +219,51 @@ async def refresh_token(
             detail="Invalid user identity in token.",
         )
 
-    user = db.query(User).filter(User.id == user_uuid).first()
+    stmt = select(User).where(User.id == user_uuid)
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found",
         )
 
-    token_data = {"sub": str(user.id)}
+    new_access_token = create_access_token({"sub": str(user.id)})
+    new_refresh_token = create_refresh_token({"sub": str(user.id)})
+    
+    refresh_payload = verify_token(new_refresh_token)
 
-    new_access_token = create_access_token(data=token_data)
-    new_refresh_token = create_refresh_token(data=token_data)
+    await SessionService.store_refresh_token(
+        user_id=user_id,
+        jti=refresh_payload["jti"],
+        expires_in=settings.REFRESH_TOKEN_EXPIRE_DAYS,
+    )
 
     return {
         "access_token": new_access_token,
         "refresh_token": new_refresh_token,
         "token_type": "bearer",
+    }
+
+
+@router.post("/logout")
+async def logout(
+    payload: RefreshRequest,
+):
+    token_payload = verify_token(
+        payload.refresh_token
+    )
+
+    if not token_payload:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid token",
+        )
+
+    await SessionService.revoke_refresh_token(
+        jti=token_payload["jti"]
+    )
+
+    return {
+        "message": "Logged out successfully"
     }

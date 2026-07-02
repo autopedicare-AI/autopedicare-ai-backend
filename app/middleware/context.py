@@ -11,11 +11,12 @@ from app.core.logging import request_id_ctx
 
 class UserContextMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        # Extract Public IP
+        if request.url.path.startswith("/health"):
+            return await call_next(request)
+        
         x_forwarded_for = request.headers.get("X-Forwarded-For")
         ip = x_forwarded_for.split(",")[0].strip() if x_forwarded_for else request.client.host  # type: ignore
 
-        # Parse User-Agent
         ua_string = request.headers.get("User-Agent", "")
         user_agent = parse(ua_string)
 

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, status
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from uuid import UUID
 
 from app.db.session import get_db
 from app.models.user import User
@@ -13,75 +14,76 @@ from app.schemas.e_commerce.compatibility import (
 
 router = APIRouter(prefix="/compatibilities", tags=["Compatibilities"])
 
-def get_compatibilites_service(
-    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+
+async def get_compatibilites_service(
+    db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)
 ):
     return CompatibilityService(db, current_user)
+
 
 @router.post(
     "/", response_model=CompatibilityResponse, status_code=status.HTTP_201_CREATED
 )
-def create_compatibility(
+async def create_compatibility(
     compatibility_data: CompatibilityCreate,
-    service: CompatibilityService = Depends(get_compatibilites_service)
+    service: CompatibilityService = Depends(get_compatibilites_service),
 ):
-    return service.create_compatibility(compatibility_data)
+    return await service.create_compatibility(compatibility_data)
 
 
 @router.get("/{compatibility_id}", response_model=CompatibilityResponse)
-def get_compatibility_by_id(
-    compatibility_id: str,
-    service: CompatibilityService = Depends(get_compatibilites_service)
+async def get_compatibility_by_id(
+    compatibility_id: UUID,
+    service: CompatibilityService = Depends(get_compatibilites_service),
 ):
-    return service.get_compatibility(compatibility_id)
+    return await service.get_compatibility(compatibility_id)
 
 
 @router.put("/{compatibility_id}", response_model=CompatibilityResponse)
-def update_compatibility(
-    compatibility_id: str,
+async def update_compatibility(
+    compatibility_id: UUID,
     compatibility_data: CompatibilityUpdate,
-    service: CompatibilityService = Depends(get_compatibilites_service)
+    service: CompatibilityService = Depends(get_compatibilites_service),
 ):
-    return service.update_compatibility(compatibility_id, compatibility_data)
+    return await service.update_compatibility(compatibility_id, compatibility_data)
 
 
 @router.delete("/{compatibility_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_compatibility(
-    compatibility_id: str,
-    service: CompatibilityService = Depends(get_compatibilites_service)
+async def delete_compatibility(
+    compatibility_id: UUID,
+    service: CompatibilityService = Depends(get_compatibilites_service),
 ):
-    service.delete_compatibility(compatibility_id)
+    await service.delete_compatibility(compatibility_id)
+    return None
 
 
 @router.get("/product/{product_id}", response_model=list[CompatibilityResponse])
-def get_compatibilities_by_product(
-    product_id: str,
-    service: CompatibilityService = Depends(get_compatibilites_service)
+async def get_compatibilities_by_product(
+    product_id: UUID,
+    service: CompatibilityService = Depends(get_compatibilites_service),
 ):
-    return service.get_compatibilities_by_product(product_id)
+    return await service.get_compatibilities_by_product(product_id)
 
 
 @router.post("/search", response_model=list[CompatibilityResponse])
-def smart_filter_search(
+async def smart_filter_search(
     car_brand: str,
     car_model: str,
     year: str,
     engine_type: str,
-    service: CompatibilityService = Depends(get_compatibilites_service)
+    service: CompatibilityService = Depends(get_compatibilites_service),
 ):
-    return service.smart_filter_search(
+    return await service.smart_filter_search(
         car_brand, car_model, year, engine_type, skip=0, limit=100
     )
 
 
 @router.post("/match-scanned-part", response_model=list[CompatibilityResponse])
-def match_ai_identified_part(
+async def match_ai_identified_part(
     ai_label: str,
     car_brand: str,
     car_model: str,
     year: str,
-    service: CompatibilityService = Depends(get_compatibilites_service)
+    service: CompatibilityService = Depends(get_compatibilites_service),
 ):
-    return service.match_ai_identified_part(
-        ai_label, car_brand, car_model, year
-    )
+    return await service.match_ai_identified_part(ai_label, car_brand, car_model, year)

@@ -1,5 +1,6 @@
 from loguru import logger
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException, status
 from typing import List
@@ -9,18 +10,18 @@ from app.schemas.fleet.vehicles import VehicleCreate, VehicleUpdate, VehicleResp
 
 
 class VehicleService:
-    def __init__(self, db: Session):
+    def __init__(self, db: AsyncSession):
         self.db = db
 
-    def create_vehicle(self, vehicle_data: VehicleCreate) -> VehicleResponse:
+    async def create_vehicle(self, vehicle_data: VehicleCreate) -> VehicleResponse:
         vehicle = Vehicle(**vehicle_data.model_dump())
         self.db.add(vehicle)
         try:
-            self.db.commit()
-            self.db.refresh(vehicle)
+            await self.db.commit()
+            await self.db.refresh(vehicle)
             return VehicleResponse.model_validate(vehicle)
         except IntegrityError as e:
-            self.db.rollback()
+            await self.db.rollback()
             logger.error(
                 "Vehicle create integrity error: {error}",
                 error=e,
@@ -30,7 +31,7 @@ class VehicleService:
                 detail="Plate number already exists",
             )
         except Exception:
-            self.db.rollback()
+            await self.db.rollback()
             logger.exception(
                 "Vehicle create unexpected error}",
             )
@@ -39,25 +40,27 @@ class VehicleService:
                 detail="Internal server error",
             )
 
-    def get_vehicle(self, vehicle_id: str) -> VehicleResponse:
+    async def get_vehicle(self, vehicle_id: str) -> VehicleResponse:
         try:
             vehicle_uuid = UUID(vehicle_id)
         except ValueError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid vehicle ID"
             )
-        vehicle = self.db.query(Vehicle).filter(Vehicle.id == vehicle_uuid).first()
+        result = await self.db.execute(select(Vehicle).where(Vehicle.id == vehicle_uuid))
+        vehicle = result.scalars().first()
         if not vehicle:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found"
             )
         return VehicleResponse.model_validate(vehicle)
 
-    def get_vehicles(self, skip: int = 0, limit: int = 10) -> List[VehicleResponse]:
-        vehicles = self.db.query(Vehicle).offset(skip).limit(limit).all()
+    async def get_vehicles(self, skip: int = 0, limit: int = 10) -> List[VehicleResponse]:
+        result = await self.db.execute(select(Vehicle).offset(skip).limit(limit))
+        vehicles = result.scalars().all()
         return [VehicleResponse.model_validate(v) for v in vehicles]
 
-    def update_vehicle(
+    async def update_vehicle(
         self, vehicle_id: str, vehicle_data: VehicleUpdate
     ) -> VehicleResponse:
         try:
@@ -66,7 +69,8 @@ class VehicleService:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid vehicle ID"
             )
-        vehicle = self.db.query(Vehicle).filter(Vehicle.id == vehicle_uuid).first()
+        result = await self.db.execute(select(Vehicle).where(Vehicle.id == vehicle_uuid))
+        vehicle = result.scalars().first()
         if not vehicle:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found"
@@ -74,11 +78,11 @@ class VehicleService:
         for key, value in vehicle_data.model_dump(exclude_unset=True).items():
             setattr(vehicle, key, value)
         try:
-            self.db.commit()
-            self.db.refresh(vehicle)
+            await self.db.commit()
+            await self.db.refresh(vehicle)
             return VehicleResponse.model_validate(vehicle)
         except IntegrityError as e:
-            self.db.rollback()
+            await self.db.rollback()
             logger.error(
                 "Vehicle update integrity error: {error} | vehicle_id={vehicle_id}",
                 error=e,
@@ -89,7 +93,7 @@ class VehicleService:
                 detail="Plate number already exists",
             )
         except Exception:
-            self.db.rollback()
+            await self.db.rollback()
             logger.exception(
                 "Vehicle update unexpected error: {error} | vehicle_id={vehicle_id}",
                 vehicle_id=vehicle_id,
@@ -99,17 +103,18 @@ class VehicleService:
                 detail="Error updating vehicle",
             )
 
-    def delete_vehicle(self, vehicle_id: str):
+    async def delete_vehicle(self, vehicle_id: str):
         try:
             vehicle_uuid = UUID(vehicle_id)
         except ValueError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid vehicle ID"
             )
-        vehicle = self.db.query(Vehicle).filter(Vehicle.id == vehicle_uuid).first()
+        result = await self.db.execute(select(Vehicle).where(Vehicle.id == vehicle_uuid))
+        vehicle = result.scalars().first()
         if not vehicle:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found"
             )
-        self.db.delete(vehicle)
-        self.db.commit()
+        await self.db.delete(vehicle)
+        await self.db.commit()

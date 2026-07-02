@@ -1,6 +1,8 @@
 from uuid import UUID
 from fastapi import HTTPException, status, UploadFile
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
 from loguru import logger
 
@@ -18,35 +20,42 @@ from app.schemas.e_commerce.products import ProductResponse
 
 class CompatibilityService:
 
-    def __init__(self, db: Session, current_user: User):
+    def __init__(self, db: AsyncSession, current_user: User):
         self.db = db
         self.current_user = current_user
-        self.vendor_id = self._get_user_vendor_id()
+        self.vendor_id = None
 
-    def _get_user_vendor_id(self):
-        vendor = (
-            self.db.query(Vendor)
-            .filter(Vendor.owner_id == self.current_user.id)
-            .first()
+    async def _get_user_vendor_id(self):
+        if self.vendor_id is not None:
+            return self.vendor_id
+        result = await self.db.execute(
+            select(Vendor).where(Vendor.owner_id == self.current_user.id)
         )
+        vendor = result.scalars().first()
         if not vendor:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Vendor not found for the current user",
             )
+        self.vendor_id = vendor.id
         return vendor.id
 
-    def create_compatibility(
+    async def create_compatibility(
         self, compatibility_data: CompatibilityCreate
     ) -> CompatibilityResponse:
-        product = (
-            self.db.query(Product)
-            .filter(
-                Product.id == compatibility_data.product_id,
-                Product.vendor_id == self.vendor_id,
+        vendor_id = await self._get_user_vendor_id()
+        result = await self.db.execute(
+            select(Product)
+            .options(
+                selectinload(Product.vendor),
+                selectinload(Product.images),
             )
-            .first()
+            .where(
+                Product.id == compatibility_data.product_id,
+                Product.vendor_id == vendor_id,
+            )
         )
+        product = result.scalars().first()
 
         if not product:
             raise HTTPException(
@@ -54,18 +63,17 @@ class CompatibilityService:
                 detail="Product not found for the current user",
             )
 
-        existing_compatibility = (
-            self.db.query(Compatibility)
-            .filter(
+        result = await self.db.execute(
+            select(Compatibility).where(
                 Compatibility.product_id == compatibility_data.product_id,
-                Compatibility.vendor_id == self.vendor_id,
+                Compatibility.vendor_id == vendor_id,
                 Compatibility.car_brand == compatibility_data.car_brand,
                 Compatibility.car_model == compatibility_data.car_model,
                 Compatibility.year == compatibility_data.year,
                 Compatibility.is_active == True,
             )
-            .first()
         )
+        existing_compatibility = result.scalars().first()
 
         if existing_compatibility:
             raise HTTPException(
@@ -75,15 +83,15 @@ class CompatibilityService:
 
         compatibility_dict = compatibility_data.model_dump()
         compatibility_dict["product_id"] = product.id
-        compatibility_dict["vendor_id"] = self.vendor_id
+        compatibility_dict["vendor_id"] = vendor_id
         compatibility = Compatibility(**compatibility_dict)
         self.db.add(compatibility)
         try:
-            self.db.commit()
-            self.db.refresh(compatibility)
+            await self.db.commit()
+            await self.db.refresh(compatibility)
             return CompatibilityResponse.model_validate(compatibility)
         except SQLAlchemyError:
-            self.db.rollback()
+            await self.db.rollback()
             logger.exception(
                 "Compatibility create error",
             )
@@ -92,15 +100,15 @@ class CompatibilityService:
                 detail="Internal server error",
             )
 
-    def get_compatibility(self, compatibility_id: UUID) -> CompatibilityResponse:
-        compatibility = (
-            self.db.query(Compatibility)
-            .filter(
+    async def get_compatibility(self, compatibility_id: UUID) -> CompatibilityResponse:
+        vendor_id = await self._get_user_vendor_id()
+        result = await self.db.execute(
+            select(Compatibility).where(
                 Compatibility.id == compatibility_id,
-                Compatibility.vendor_id == self.vendor_id,
+                Compatibility.vendor_id == vendor_id,
             )
-            .first()
         )
+        compatibility = result.scalars().first()
 
         if not compatibility:
             raise HTTPException(
@@ -109,17 +117,17 @@ class CompatibilityService:
 
         return CompatibilityResponse.model_validate(compatibility)
 
-    def update_compatibility(
+    async def update_compatibility(
         self, compatibility_id: UUID, compatibility_data: CompatibilityUpdate
     ) -> CompatibilityResponse:
-        compatibility = (
-            self.db.query(Compatibility)
-            .filter(
+        vendor_id = await self._get_user_vendor_id()
+        result = await self.db.execute(
+            select(Compatibility).where(
                 Compatibility.id == compatibility_id,
-                Compatibility.vendor_id == self.vendor_id,
+                Compatibility.vendor_id == vendor_id,
             )
-            .first()
         )
+        compatibility = result.scalars().first()
 
         if not compatibility:
             raise HTTPException(
@@ -131,11 +139,11 @@ class CompatibilityService:
             setattr(compatibility, field, value)
 
         try:
-            self.db.commit()
-            self.db.refresh(compatibility)
+            await self.db.commit()
+            await self.db.refresh(compatibility)
             return CompatibilityResponse.model_validate(compatibility)
         except SQLAlchemyError:
-            self.db.rollback()
+            await self.db.rollback()
             logger.exception(
                 "Compatibility update error",
             )
@@ -144,17 +152,17 @@ class CompatibilityService:
                 detail="Internal server error",
             )
 
-    def delete_compatibility(self, compatibility_id: UUID):
-        compatibility = (
-            self.db.query(Compatibility)
+    async def delete_compatibility(self, compatibility_id: UUID):
+        result = await self.db.execute(
+            select(Compatibility)
             .join(Product)
             .join(Vendor)
-            .filter(
+            .where(
                 Compatibility.id == compatibility_id,
                 Vendor.owner_id == self.current_user.id,
             )
-            .first()
         )
+        compatibility = result.scalars().first()
 
         if not compatibility:
             raise HTTPException(
@@ -162,44 +170,45 @@ class CompatibilityService:
             )
 
         compatibility.is_active = False
-        self.db.commit()
+        await self.db.commit()
         return {"detail": "Compatibility deleted successfully"}
 
-    def find_compatibilities_by_product_id(
+    async def find_compatibilities_by_product_id(
         self, product_id: UUID, skip: int = 0, limit: int = 100
     ) -> list[CompatibilityResponse]:
-        compatibilities = (
-            self.db.query(Compatibility)
+        vendor_id = await self._get_user_vendor_id()
+        result = await self.db.execute(
+            select(Compatibility)
             .join(Product)
             .join(Vendor)
-            .filter(
+            .where(
                 Compatibility.product_id == product_id,
-                Compatibility.vendor_id == self.vendor_id,
+                Compatibility.vendor_id == vendor_id,
             )
             .offset(skip)
             .limit(limit)
-            .all()
         )
+        compatibilities = result.scalars().all()
 
         return [CompatibilityResponse.model_validate(c) for c in compatibilities]
 
-    def get_compatibilities_by_product(
+    async def get_compatibilities_by_product(
         self, product_id: UUID, skip: int = 0, limit: int = 100
     ) -> list[CompatibilityResponse]:
-        compatibilities = (
-            self.db.query(Compatibility)
-            .filter(
+        result = await self.db.execute(
+            select(Compatibility)
+            .where(
                 Compatibility.product_id == product_id,
                 Compatibility.is_active == True,
             )
             .offset(skip)
             .limit(limit)
-            .all()
         )
+        compatibilities = result.scalars().all()
 
         return [CompatibilityResponse.model_validate(c) for c in compatibilities]
 
-    def smart_filter_search(
+    async def smart_filter_search(
         self,
         car_brand: str,
         car_model: str,
@@ -208,13 +217,14 @@ class CompatibilityService:
         skip: int = 0,
         limit: int = 100,
     ) -> list[ProductResponse]:
-        """
-        Perform a smart filter search for products based on car compatibility criteria.
-        """
-        products = (
-            self.db.query(Product)
+        result = await self.db.execute(
+            select(Product)
+            .options(
+                selectinload(Product.vendor),
+                selectinload(Product.images),
+            )
             .join(Compatibility)
-            .filter(
+            .where(
                 Product.is_active == True,
                 Compatibility.is_active == True,
                 Compatibility.car_brand.ilike(f"%{car_brand}%"),
@@ -224,21 +234,21 @@ class CompatibilityService:
             )
             .offset(skip)
             .limit(limit)
-            .all()
         )
+        products = result.scalars().all()
         return [ProductResponse.model_validate(p) for p in products]
 
-    def match_ai_identified_part(
+    async def match_ai_identified_part(
         self, ai_label: str, car_brand: str, car_model: str, year: str
     ) -> dict:
-        """
-        Match AI-identified part labels with compatibility records to find potential product matches.
-        """
-        # Search for compatibilities that match the car criteria and have products with names similar to the AI label
-        query = (
-            self.db.query(Product)
+        result = await self.db.execute(
+            select(Product)
+            .options(
+                selectinload(Product.vendor),
+                selectinload(Product.images),
+            )
             .join(Compatibility)
-            .filter(
+            .where(
                 Product.is_active == True,
                 Compatibility.is_active == True,
                 Compatibility.car_brand.ilike(f"%{car_brand}%"),
@@ -246,9 +256,7 @@ class CompatibilityService:
                 Compatibility.year.ilike(f"%{year}%"),
             )
         )
-
-        # Find all products that are compatible with this car
-        matches = query.all()
+        matches = result.scalars().all()
 
         exact_matches = []
         alternatives = []
@@ -273,7 +281,6 @@ class CompatibilityService:
                 if stock > 0:
                     alternatives.append(p)
 
-        # Fulfill the PDF Edge Case Requirements perfectly
         if exact_matches:
             message = "Match found."
         elif exact_out_of_stock:

@@ -18,5 +18,9 @@ class Driver(Base):
     license_number = Column(String, unique=True, nullable=False)
     phone_number = Column(String, nullable=False)
     email = Column(String, unique=True, nullable=False)
-    status = Column(Enum(DriverStatus), default=DriverStatus.active, nullable=False)
+    status = Column(
+        Enum(DriverStatus, name="driverstatus", create_type=False),
+        default=DriverStatus.active,
+        nullable=False,
+    )
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

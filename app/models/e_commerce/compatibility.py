@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, UUID, ForeignKey, DateTime, Boolean
+from sqlalchemy import Column, String, UUID, ForeignKey, DateTime, Boolean, Index
 from datetime import datetime, timezone
 from app.db.session import Base
 from sqlalchemy.orm import relationship
@@ -7,6 +7,10 @@ from sqlalchemy.orm import relationship
 
 class Compatibility(Base):
     __tablename__ = "compatibilities"
+    __table_args__ = (
+        Index("ix_compatibilities_vendor_id_is_active", "vendor_id", "is_active"),
+        Index("ix_compatibilities_created_at_is_active", "created_at", "is_active"),
+    )
 
     id = Column(UUID, primary_key=True, default=uuid.uuid4)
     product_id = Column(

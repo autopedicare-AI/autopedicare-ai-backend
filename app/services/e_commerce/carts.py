@@ -1,7 +1,9 @@
 from uuid import UUID
 from decimal import Decimal
 from fastapi import HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+from sqlalchemy.ext.asyncio import AsyncSession
 from loguru import logger
 
 from app.models.e_commerce.carts import Cart, CartItem
@@ -11,28 +13,41 @@ from app.models.e_commerce.products import Product
 
 
 class CartService:
-    def __init__(self, db: Session, current_user: User):
+    def __init__(self, db: AsyncSession, current_user: User):
         self.db = db
         self.current_user = current_user
-        self.cart = self._get_or_create_cart()
+        self.cart = None
 
-    def _get_or_create_cart(self) -> Cart:
-        cart = self.db.query(Cart).filter(Cart.user_id == self.current_user.id).first()
+    async def _get_or_create_cart(self) -> Cart:
+        result = await self.db.execute(
+            select(Cart)
+            .options(
+                selectinload(Cart.items).selectinload(CartItem.product),
+            )
+            .where(Cart.user_id == self.current_user.id)
+        )
+        cart = result.scalars().first()
         if not cart:
             cart = Cart(user_id=self.current_user.id)
             self.db.add(cart)
-            self.db.commit()
-            self.db.refresh(cart)
+            await self.db.commit()
+            await self.db.refresh(cart)
         return cart
 
-    def add_to_cart(self, cart_data: CartItemCreate):
+    async def add_to_cart(self, cart_data: CartItemCreate):
+        if self.cart is None:
+            self.cart = await self._get_or_create_cart()
         try:
-            product = (
-                self.db.query(Product)
-                .filter(Product.id == cart_data.product_id, Product.is_active == True)
+            result = await self.db.execute(
+                select(Product)
+                .options(
+                    selectinload(Product.vendor),
+                    selectinload(Product.images),
+                )
+                .where(Product.id == cart_data.product_id, Product.is_active == True)
                 .with_for_update()
-                .first()
             )
+            product = result.scalars().first()
 
             if not product:
                 raise HTTPException(
@@ -40,21 +55,19 @@ class CartService:
                     detail="Product not found or unavailable.",
                 )
 
-            # Check if the item is already in the cart
-            existing_cart_item = (
-                self.db.query(CartItem)
+            result = await self.db.execute(
+                select(CartItem)
                 .filter(
                     CartItem.cart_id == self.cart.id,
                     CartItem.product_id == cart_data.product_id,
                 )
-                .first()
             )
+            existing_cart_item = result.scalars().first()
 
             new_quantity = cart_data.quantity
             if existing_cart_item:
                 new_quantity += existing_cart_item.quantity
 
-            # stock validation
             if new_quantity > product.stock_quantity:
                 available_stock = product.stock_quantity - (
                     existing_cart_item.quantity if existing_cart_item else 0
@@ -74,20 +87,23 @@ class CartService:
                 )
                 self.db.add(new_cart_item)
 
-            self.db.commit()
-            return self.view_cart()
+            await self.db.commit()
+            return await self.view_cart()
 
         except HTTPException:
             raise
         except Exception as e:
-            self.db.rollback()
+            await self.db.rollback()
             logger.error("Error adding to cart: {error}", error=e)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="An error occurred while adding the item to the cart. Please try again.",
             )
 
-    def view_cart(self):
+    async def view_cart(self):
+        if self.cart is None:
+            self.cart = await self._get_or_create_cart()
+
         items_response = []
         cart_total = Decimal("0.00")
 
@@ -113,14 +129,16 @@ class CartService:
             "total_amount": cart_total,
         }
 
-    def update_cart_item(self, item_id: UUID, cart_data: CartItemUpdate):
+    async def update_cart_item(self, item_id: UUID, cart_data: CartItemUpdate):
+        if self.cart is None:
+            self.cart = await self._get_or_create_cart()
         try:
-            cart_item = (
-                self.db.query(CartItem)
+            result = await self.db.execute(
+                select(CartItem)
                 .filter(CartItem.id == item_id, CartItem.cart_id == self.cart.id)
                 .with_for_update()
-                .first()
             )
+            cart_item = result.scalars().first()
 
             if not cart_item:
                 raise HTTPException(
@@ -129,7 +147,7 @@ class CartService:
                 )
 
             if cart_data.quantity <= 0:
-                return self.remove_cart_item(item_id)
+                return await self.remove_cart_item(item_id)
 
             if cart_data.quantity > cart_item.product.stock_quantity:
                 raise HTTPException(
@@ -138,26 +156,28 @@ class CartService:
                 )
 
             cart_item.quantity = cart_data.quantity
-            self.db.commit()
-            return self.view_cart()
+            await self.db.commit()
+            return await self.view_cart()
 
         except HTTPException:
             raise
         except Exception as e:
-            self.db.rollback()
+            await self.db.rollback()
             logger.error("Error updating cart item: {error}", error=e)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="An error occurred while updating the cart item. Please try again.",
             )
 
-    def remove_cart_item(self, item_id: UUID):
+    async def remove_cart_item(self, item_id: UUID):
+        if self.cart is None:
+            self.cart = await self._get_or_create_cart()
         try:
-            cart_item = (
-                self.db.query(CartItem)
+            result = await self.db.execute(
+                select(CartItem)
                 .filter(CartItem.id == item_id, CartItem.cart_id == self.cart.id)
-                .first()
             )
+            cart_item = result.scalars().first()
 
             if not cart_item:
                 raise HTTPException(
@@ -165,14 +185,14 @@ class CartService:
                     detail="Cart item not found.",
                 )
 
-            self.db.delete(cart_item)
-            self.db.commit()
-            return self.view_cart()
+            await self.db.delete(cart_item)
+            await self.db.commit()
+            return await self.view_cart()
 
         except HTTPException:
             raise
         except Exception as e:
-            self.db.rollback()
+            await self.db.rollback()
             logger.error("Error removing cart item: {error}", error=e)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

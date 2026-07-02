@@ -1,5 +1,6 @@
 from fastapi import HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from loguru import logger
 
 from app.models.e_commerce.vendors import Vendor
@@ -8,16 +9,15 @@ from app.schemas.e_commerce.vendors import VendorCreate, VendorUpdate, VendorRes
 
 
 class VendorService:
-    def __init__(self, db: Session, current_user: User):
+    def __init__(self, db: AsyncSession, current_user: User):
         self.db = db
         self.current_user = current_user
 
-    def create_vendor(self, vendor_data: VendorCreate) -> VendorResponse:
-        existing_vendor = (
-            self.db.query(Vendor)
-            .filter(Vendor.owner_id == self.current_user.id)
-            .first()
+    async def create_vendor(self, vendor_data: VendorCreate) -> VendorResponse:
+        result = await self.db.execute(
+            select(Vendor).where(Vendor.owner_id == self.current_user.id)
         )
+        existing_vendor = result.scalars().first()
         if existing_vendor:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -30,11 +30,11 @@ class VendorService:
         vendor = Vendor(**vendor_dict)
         self.db.add(vendor)
         try:
-            self.db.commit()
-            self.db.refresh(vendor)
+            await self.db.commit()
+            await self.db.refresh(vendor)
             return VendorResponse.model_validate(vendor)
         except Exception:
-            self.db.rollback()
+            await self.db.rollback()
             logger.exception(
                 "Vendor create error",
             )
@@ -43,12 +43,11 @@ class VendorService:
                 detail="Internal server error",
             )
 
-    def get_vendor_by_id(self) -> VendorResponse:
-        vendor = (
-            self.db.query(Vendor)
-            .filter(Vendor.owner_id == self.current_user.id)
-            .first()
+    async def get_vendor_by_id(self) -> VendorResponse:
+        result = await self.db.execute(
+            select(Vendor).where(Vendor.owner_id == self.current_user.id)
         )
+        vendor = result.scalars().first()
         if not vendor:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -56,12 +55,11 @@ class VendorService:
             )
         return VendorResponse.model_validate(vendor)
 
-    def update_vendor(self, vendor_data: VendorUpdate) -> VendorResponse:
-        vendor = (
-            self.db.query(Vendor)
-            .filter(Vendor.owner_id == self.current_user.id)
-            .first()
+    async def update_vendor(self, vendor_data: VendorUpdate) -> VendorResponse:
+        result = await self.db.execute(
+            select(Vendor).where(Vendor.owner_id == self.current_user.id)
         )
+        vendor = result.scalars().first()
         if not vendor:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -73,11 +71,11 @@ class VendorService:
             setattr(vendor, field, value)
 
         try:
-            self.db.commit()
-            self.db.refresh(vendor)
+            await self.db.commit()
+            await self.db.refresh(vendor)
             return VendorResponse.model_validate(vendor)
         except Exception:
-            self.db.rollback()
+            await self.db.rollback()
             logger.exception(
                 "Vendor update error",
             )
@@ -86,22 +84,21 @@ class VendorService:
                 detail="Internal server error",
             )
 
-    def delete_vendor(self):
-        vendor = (
-            self.db.query(Vendor)
-            .filter(Vendor.owner_id == self.current_user.id)
-            .first()
+    async def delete_vendor(self):
+        result = await self.db.execute(
+            select(Vendor).where(Vendor.owner_id == self.current_user.id)
         )
+        vendor = result.scalars().first()
         if not vendor:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Vendor not found",
             )
-        self.db.delete(vendor)
+        await self.db.delete(vendor)
         try:
-            self.db.commit()
+            await self.db.commit()
         except Exception:
-            self.db.rollback()
+            await self.db.rollback()
             logger.exception(
                 "Vendor delete error",
             )
@@ -110,12 +107,16 @@ class VendorService:
                 detail="Internal server error",
             )
 
-    def list_all_vendors(self) -> list[VendorResponse]:
-        vendors = self.db.query(Vendor).all()
+    async def list_all_vendors(self, skip: int = 0, limit: int = 10) -> list[VendorResponse]:
+        result = await self.db.execute(select(Vendor).offset(skip).limit(limit))
+        vendors = result.scalars().all()
         return [VendorResponse.model_validate(vendor) for vendor in vendors]
 
-    def get_vendor_by_user_id(self, vendor_id: str) -> VendorResponse:
-        vendor = self.db.query(Vendor).filter(Vendor.owner_id == vendor_id).first()
+    async def get_vendor_by_user_id(self, vendor_id: str) -> VendorResponse:
+        result = await self.db.execute(
+            select(Vendor).where(Vendor.owner_id == vendor_id)
+        )
+        vendor = result.scalars().first()
         if not vendor:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

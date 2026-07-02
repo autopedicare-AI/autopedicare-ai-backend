@@ -23,7 +23,11 @@ class Trip(Base):
     start_time = Column(DateTime(timezone=True), nullable=False)
     end_time = Column(DateTime(timezone=True), nullable=True)
     distance_km = Column(Float, nullable=False)
-    status = Column(Enum(TripStatus), default=TripStatus.ongoing, nullable=False)
+    status = Column(
+        Enum(TripStatus, name="tripstatus", create_type=False),
+        default=TripStatus.ongoing,
+        nullable=False,
+    )
 
     # Relationships
     driver = relationship("Driver", backref="trips")

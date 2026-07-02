@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, DECIMAL, UUID, ForeignKey, DateTime, Integer
+from sqlalchemy import Column, String, DECIMAL, UUID, ForeignKey, DateTime, Integer, Index
 from datetime import datetime, timezone
 from sqlalchemy.orm import relationship
 from app.db.session import Base
@@ -15,13 +15,19 @@ class OrderStatus:
 
 class Order(Base):
     __tablename__ = "orders"
+    __table_args__ = (
+        Index("ix_orders_user_id", "user_id"),
+        Index("ix_orders_status", "status"),
+        Index("ix_orders_payment_status", "payment_status"),
+        Index("ix_orders_created_at", "created_at"),
+    )
 
     id = Column(UUID, primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     status = Column(String, nullable=False, default=OrderStatus.PENDING)
     total_amount = Column(DECIMAL(10, 2), nullable=False)
     payment_status = Column(String, nullable=False, default="unpaid")
-    payment_reference = Column(String, nullable=True)
+    payment_reference = Column(String, nullable=True, unique=True, index=True)
     shipping_address = Column(String, nullable=False)
     authorization_url = Column(String, nullable=True)
     created_at = Column(
