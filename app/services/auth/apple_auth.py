@@ -10,23 +10,19 @@ APPLE_PUBLIC_KEYS_URL = "https://appleid.apple.com/auth/keys"
 
 async def verify_apple_token(token: str):
     try:
-        # fetch Apple's public keys
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(5.0)) as client:
             response = await client.get(APPLE_PUBLIC_KEYS_URL)
             apple_keys = response.json().get("keys", [])
 
-        # Get kid from token header
         unverified_header = jwt.get_unverified_header(token)
         kid = unverified_header.get("kid")
 
-        # fine the matching key from apple's public keys
         key = next((k for k in apple_keys if k["kid"] == kid), None)
         if not key:
             raise HTTPException(
                 status_code=401, detail="Invalid token: no matching key found"
             )
 
-        # construct the public key and decode
         public_key = jwk.construct(key)
         payload = jwt.decode(
             token,
@@ -42,7 +38,7 @@ async def verify_apple_token(token: str):
             "email_verified": payload.get("email_verified"),
         }
     except Exception as e:
-        logger.exception("Apple token verification failed | token_prefix={prefix}", prefix=token[:10])
+        logger.exception("Apple token verification failed")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Could not validate Apple credentials",

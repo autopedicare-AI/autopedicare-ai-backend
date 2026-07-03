@@ -7,7 +7,8 @@ GEO_IP_API_URL = "https://ipinfo.io/"
 
 async def get_location_from_ip(ip: str):
     try:
-        async with httpx.AsyncClient() as client:
+        timeout = httpx.Timeout(10.0, connect=3.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
             url = f"{GEO_IP_API_URL}{ip}/json?token={settings.IP_API_KEY}"
             response = await client.get(url)
             response.raise_for_status()

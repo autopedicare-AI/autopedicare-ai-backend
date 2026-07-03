@@ -2,7 +2,10 @@ import uuid
 import boto3
 from botocore.exceptions import ClientError
 from fastapi import HTTPException, status, UploadFile
-from sqlalchemy.orm import Session
+from fastapi.concurrency import run_in_threadpool
+from sqlalchemy import select, update, func
+from sqlalchemy.orm import selectinload
+from sqlalchemy.ext.asyncio import AsyncSession
 from loguru import logger
 from uuid import UUID
 
@@ -18,10 +21,12 @@ from app.schemas.e_commerce.product_images import (
 
 class ProductImageService:
 
-    def __init__(self, db: Session, current_user: User | None = None):
+    def __init__(self, db: AsyncSession, current_user: User | None = None):
         self.db = db
         self.current_user = current_user
-        self.vendor_id = self._get_user_vendor_id() if current_user else None
+        self.vendor_id = None
+        if current_user:
+            self.vendor_id = None  # will be set lazily
         self.s3_client = boto3.client(
             "s3",
             aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
@@ -29,13 +34,14 @@ class ProductImageService:
             region_name=settings.AWS_REGION,
         )
         self.bucket_name = settings.AWS_BUCKET_NAME
+        # max upload size in bytes; default to 5MB if not configured
+        self.max_file_size = getattr(settings, "MAX_IMAGE_UPLOAD_SIZE_BYTES", 5 * 1024 * 1024)
 
-    def _get_user_vendor_id(self):
-        vendor = (
-            self.db.query(Vendor)
-            .filter(Vendor.owner_id == self.current_user.id)
-            .first()
+    async def _get_user_vendor_id(self):
+        result = await self.db.execute(
+            select(Vendor).where(Vendor.owner_id == self.current_user.id)
         )
+        vendor = result.scalars().first()
         if not vendor:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -43,12 +49,21 @@ class ProductImageService:
             )
         return vendor.id
 
-    def verify_product_ownership(self, product_id: UUID):
-        product = (
-            self.db.query(Product)
-            .filter(Product.id == product_id, Product.vendor_id == self.vendor_id)
-            .first()
+    async def verify_product_ownership(self, product_id: UUID):
+        if self.vendor_id is None:
+            self.vendor_id = await self._get_user_vendor_id()
+        result = await self.db.execute(
+            select(Product)
+            .options(
+                selectinload(Product.vendor),
+                selectinload(Product.images),
+            )
+            .where(
+                Product.id == product_id,
+                Product.vendor_id == self.vendor_id,
+            )
         )
+        product = result.scalars().first()
         if not product:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -59,10 +74,28 @@ class ProductImageService:
     async def _upload_to_cloud(self, file: UploadFile) -> str:
         """Uploads the file to AWS S3 and returns the public URL."""
 
+        # Validate content type
         if not file.content_type.startswith("image/"):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid file type. Only image files are allowed.",
+            )
+
+        # Validate file size when possible
+        try:
+            # move to end to get size
+            current = file.file.tell()
+            file.file.seek(0, 2)
+            size = file.file.tell()
+            file.file.seek(0)
+        except Exception:
+            size = None
+
+        if size is not None and size > self.max_file_size:
+            max_mb = round(self.max_file_size / (1024 * 1024), 2)
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"File too large. Maximum allowed size is {max_mb} MB.",
             )
 
         if not self.bucket_name:
@@ -72,13 +105,12 @@ class ProductImageService:
                 detail="Server configuration error regarding image uploads.",
             )
 
-        # Generate a safe, unique filename using UUID
         file_extension = file.filename.split(".")[-1] if "." in file.filename else "jpg"
         unique_filename = f"product-images/{uuid.uuid4()}.{file_extension}"
 
         try:
-            # uploading to s3
-            self.s3_client.upload_fileobj(
+            await run_in_threadpool(
+                self.s3_client.upload_fileobj,
                 file.file,
                 self.bucket_name,
                 unique_filename,
@@ -104,9 +136,8 @@ class ProductImageService:
         is_primary: bool = False,
     ):
 
-        self.verify_product_ownership(product_id)
+        await self.verify_product_ownership(product_id)
 
-        # Uploading to cloud storage
         try:
             image_url = await self._upload_to_cloud(file)
         except HTTPException:
@@ -118,18 +149,22 @@ class ProductImageService:
                 detail="Failed to upload image. Please try again later.",
             )
 
-        # Primary Image logic
         if is_primary:
-            self.db.query(ProductImage).filter(
-                ProductImage.product_id == product_id, ProductImage.is_primary == True
-            ).update({ProductImage.is_primary: False})
+            await self.db.execute(
+                update(ProductImage)
+                .where(
+                    ProductImage.product_id == product_id,
+                    ProductImage.is_primary == True,
+                )
+                .values({ProductImage.is_primary: False})
+            )
 
-        # Get the display order
-        existing_image_count = (
-            self.db.query(ProductImage)
-            .filter(ProductImage.product_id == product_id)
-            .count()
+        result = await self.db.execute(
+            select(func.count()).select_from(ProductImage).where(
+                ProductImage.product_id == product_id
+            )
         )
+        existing_image_count = result.scalar_one()
         display_order = existing_image_count + 1
 
         new_image = ProductImage(
@@ -142,24 +177,29 @@ class ProductImageService:
 
         self.db.add(new_image)
         try:
-            self.db.commit()
-            self.db.refresh(new_image)
+            await self.db.commit()
+            await self.db.refresh(new_image)
             return ProductImageResponse.model_validate(new_image)
         except Exception as e:
-            self.db.rollback()
+            await self.db.rollback()
             logger.error("Failed to save product image to database: {error}", error=e)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to save product image. Please try again later.",
             )
 
-    def delete_image(self, image_id: UUID):
-        image = (
-            self.db.query(ProductImage)
+    async def delete_image(self, image_id: UUID):
+        if self.vendor_id is None:
+            self.vendor_id = await self._get_user_vendor_id()
+        result = await self.db.execute(
+            select(ProductImage)
             .join(Product)
-            .filter(ProductImage.id == image_id, Product.vendor_id == self.vendor_id)
-            .first()
+            .where(
+                ProductImage.id == image_id,
+                Product.vendor_id == self.vendor_id,
+            )
         )
+        image = result.scalars().first()
 
         if not image:
             raise HTTPException(
@@ -167,38 +207,37 @@ class ProductImageService:
                 detail="Product image not found.",
             )
 
-        # Delete the actual file from S3
         try:
-            # Extract the S3 object key from the URL
-            # Example URL: https://my-bucket.s3.us-east-1.amazonaws.com/product-images/123.jpg
-            # Object Key: product-images/123.jpg
             object_key = image.image_url.split(".com/")[-1]
-            self.s3_client.delete_object(Bucket=self.bucket_name, Key=object_key)
+            await run_in_threadpool(
+                self.s3_client.delete_object,
+                Bucket=self.bucket_name,
+                Key=object_key,
+            )
         except ClientError as e:
             logger.warning(
                 "Failed to delete image from S3, but proceeding with DB deletion. Error: {error}",
                 error=e,
             )
 
-        self.db.delete(image)
+        await self.db.delete(image)
         try:
-            self.db.commit()
+            await self.db.commit()
         except Exception as e:
             logger.error(
                 "Failed to delete product image from database: {error}", error=e
             )
-            self.db.rollback()
+            await self.db.rollback()
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to delete product image. Please try again later.",
             )
 
-    def get_product_images(self, product_id: UUID) -> list[ProductImageResponse]:
-        """Public endpoint to retrieve all images for a product."""
-        images = (
-            self.db.query(ProductImage)
-            .filter(ProductImage.product_id == product_id)
+    async def get_product_images(self, product_id: UUID) -> list[ProductImageResponse]:
+        result = await self.db.execute(
+            select(ProductImage)
+            .where(ProductImage.product_id == product_id)
             .order_by(ProductImage.display_order)
-            .all()
         )
+        images = result.scalars().all()
         return [ProductImageResponse.model_validate(image) for image in images]

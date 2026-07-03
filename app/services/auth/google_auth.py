@@ -1,20 +1,22 @@
 from loguru import logger
 from google.oauth2 import id_token
 from google.auth.transport import requests
-from app.core.config import settings
+from fastapi.concurrency import run_in_threadpool
 from fastapi import HTTPException, status
+from app.core.config import settings
 
 
 async def verify_google_token(token: str):
     try:
-        # verifying token, audience and expired time
-        id_info = id_token.verify_oauth2_token(
-            token, requests.Request(), settings.GOOGLE_CLIENT_ID
+        id_info = await run_in_threadpool(
+            id_token.verify_oauth2_token,
+            token,
+            requests.Request(),
+            settings.GOOGLE_CLIENT_ID,
         )
 
-        # confirming the token is issued by Google
         if id_info["iss"] not in ["accounts.google.com", "https://accounts.google.com"]:
-            raise ValueError("Wrong issuer.")
+            raise ValueError("Invalid issuer")
 
         return {
             "sub": id_info["sub"],
@@ -22,7 +24,7 @@ async def verify_google_token(token: str):
             "email_verified": id_info.get("email_verified"),
         }
     except Exception as e:
-        logger.exception("Google token verification failed | token_prefix={prefix}", prefix=token[:10])
+        logger.exception("Google token verification failed")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Google token verification failed",

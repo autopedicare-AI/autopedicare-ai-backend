@@ -4,7 +4,8 @@ import uuid
 import hmac
 import json
 from fastapi import HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from loguru import logger
 
 from app.core.config import settings
@@ -12,7 +13,7 @@ from app.models.e_commerce.orders import Order, OrderStatus
 
 
 class PaystackService:
-    def __init__(self, db: Session, current_user=None):
+    def __init__(self, db: AsyncSession, current_user=None):
         self.db = db
         self.current_user = current_user
         self.secret_key = settings.PAYSTACK_SECRET_KEY
@@ -24,11 +25,10 @@ class PaystackService:
 
     async def initialize_payment(self, order_id: str, callback_url: str = None):
         """Generate payment link with strict idempotency"""
-        order = (
-            self.db.query(Order)
-            .filter(Order.id == order_id, Order.user_id == self.current_user.id)
-            .first()
-        )
+        result = await self.db.execute(
+            select(Order).where(Order.id == order_id, Order.user_id == self.current_user.id)
+        ).with_for_update()
+        order = result.scalars().first()
 
         if not order:
             raise HTTPException(
@@ -60,7 +60,8 @@ class PaystackService:
             "callback_url": final_callback_url,
         }
 
-        async with httpx.AsyncClient() as client:
+        timeout = httpx.Timeout(10.0, connect=3.0) 
+        async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(
                 f"{self.base_url}/transaction/initialize",
                 headers=self.headers,
@@ -79,7 +80,7 @@ class PaystackService:
 
         order.payment_reference = transaction_reference
         order.authorization_url = authorization_url
-        self.db.commit()
+        await self.db.commit()
 
         return {
             "authorization_url": authorization_url,
@@ -89,7 +90,8 @@ class PaystackService:
 
     async def verify_payment(self, reference: str):
         """Manual verification (when user is redirected back to the frontend)."""
-        async with httpx.AsyncClient() as client:
+        timeout = httpx.Timeout(10.0, connect=3.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.get(
                 f"{self.base_url}/transaction/verify/{reference}", headers=self.headers
             )
@@ -104,8 +106,8 @@ class PaystackService:
         paystack_status = response_data["data"]["status"]
 
         order = (
-            self.db.query(Order).filter(Order.payment_reference == reference).first()
-        )
+            await self.db.execute(select(Order).where(Order.payment_reference == reference))
+        ).scalars().first()
         if not order:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -115,7 +117,7 @@ class PaystackService:
         if paystack_status == "success" and order.payment_status != "paid":
             order.payment_status = "paid"
             order.status = OrderStatus.PAID
-            self.db.commit()
+            await self.db.commit()
 
         return {
             "status": order.payment_status,
@@ -161,15 +163,14 @@ class PaystackService:
             reference = data["data"]["reference"]
 
             order = (
-                self.db.query(Order)
-                .filter(Order.payment_reference == reference)
-                .first()
-            )
-
+                await self.db.execute(
+                    select(Order).where(Order.payment_reference == reference)
+                )
+            ).scalars().first()
             if order and order.payment_status != "paid":
                 order.payment_status = "paid"
                 order.status = OrderStatus.PAID
-                self.db.commit()
+                await self.db.commit()
                 logger.info(
                     "Order {order_id} marked as PAID via Webhook.", order_id=order.id
                 )

@@ -9,6 +9,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql as pg
 
 
 # revision identifiers, used by Alembic.
@@ -51,10 +52,10 @@ def upgrade() -> None:
     """)
 
     # Define enum types for table columns
-    vehicle_status = sa.Enum('active', 'maintenance', 'inactive', name='vehiclestatus')
-    driver_status = sa.Enum('active', 'inactive', name='driverstatus')
-    assignment_status = sa.Enum('active', 'inactive', name='assignmentstatus')
-    trip_status = sa.Enum('ongoing', 'completed', 'cancelled', name='tripstatus')
+    vehicle_status = pg.ENUM('active', 'maintenance', 'inactive', name='vehiclestatus', create_type=False)
+    driver_status = pg.ENUM('active', 'inactive', name='driverstatus', create_type=False)
+    assignment_status = pg.ENUM('active', 'inactive', name='assignmentstatus', create_type=False)
+    trip_status = pg.ENUM('ongoing', 'completed', 'cancelled', name='tripstatus', create_type=False)
 
     # Create vehicles table
     op.create_table('vehicles',

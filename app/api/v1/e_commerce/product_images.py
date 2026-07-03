@@ -1,6 +1,6 @@
 from uuid import UUID
 from fastapi import APIRouter, Depends, status, UploadFile, File, Form
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.models.user import User
@@ -12,8 +12,8 @@ from app.services.e_commerce.product_images import ProductImageService
 router = APIRouter(tags=["Product Images"])
 
 
-def get_image_service(
-    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+async def get_image_service(
+    db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)
 ):
     return ProductImageService(db, current_user)
 
@@ -34,14 +34,14 @@ async def add_product_image(
 
 
 @router.get("/products/{product_id}/images", response_model=list[ProductImageResponse])
-async def get_product_images(product_id: UUID, db: Session = Depends(get_db)):
+async def get_product_images(product_id: UUID, db: AsyncSession = Depends(get_db)):
     service = ProductImageService(db)
-    return service.get_product_images(product_id)
+    return await service.get_product_images(product_id)
 
 
 @router.delete("/images/{image_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_product_image(
     image_id: UUID, service: ProductImageService = Depends(get_image_service)
 ):
-    service.delete_image(image_id)
+    await service.delete_image(image_id)
     return None

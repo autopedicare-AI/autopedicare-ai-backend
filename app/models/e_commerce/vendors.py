@@ -8,6 +8,7 @@ from sqlalchemy import (
     Float,
     DateTime,
     ForeignKey,
+    Index,
 )
 from datetime import datetime, timezone
 from sqlalchemy.orm import relationship
@@ -20,7 +21,7 @@ class Vendor(Base):
     id = Column(UUID, primary_key=True, default=uuid.uuid4)
     name = Column(String(255), nullable=False)
     owner_id = Column(
-        UUID(as_uuid=True), ForeignKey("users.id"), unique=True, nullable=False
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, unique=True, index=True
     )
     business_name = Column(String(255), nullable=False, unique=True)
     email = Column(String(255), nullable=True, unique=True)
@@ -28,9 +29,9 @@ class Vendor(Base):
     address = Column(String(255), nullable=True)
     rating = Column(Float, nullable=True, default=0.0)
     delivery_days = Column(Integer, default=3)
-    verified = Column(Boolean, default=False)
+    verified = Column(Boolean, default=False, index=True)
     created_at = Column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True
     )
     updated_at = Column(
         DateTime(timezone=True),
